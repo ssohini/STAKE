@@ -1,14 +1,24 @@
 import { NextResponse } from 'next/server';
 import { buildNewContract, validateCreateContractInput } from '@/lib/contracts';
-import { getContractStore } from '@/lib/store';
+import { getContractStore, StorageConfigError } from '@/lib/store';
+
+function storageErrorResponse(error: unknown, fallback: string) {
+  const status = error instanceof StorageConfigError ? 503 : 500;
+  const message = error instanceof Error ? error.message : fallback;
+  return NextResponse.json({ error: message }, { status });
+}
 
 export async function GET() {
-  const store = getContractStore();
-  const contracts = await store.listAll();
-  return NextResponse.json({
-    storage: store.kind,
-    contracts,
-  });
+  try {
+    const store = getContractStore();
+    const contracts = await store.listAll();
+    return NextResponse.json({
+      storage: store.kind,
+      contracts,
+    });
+  } catch (error) {
+    return storageErrorResponse(error, 'Failed to load contracts.');
+  }
 }
 
 export async function POST(request: Request) {
@@ -28,8 +38,11 @@ export async function POST(request: Request) {
   }
 
   const contract = buildNewContract(validation.data);
-  const store = getContractStore();
-  await store.create(contract);
-
-  return NextResponse.json({ contract }, { status: 201 });
+  try {
+    const store = getContractStore();
+    await store.create(contract);
+    return NextResponse.json({ contract }, { status: 201 });
+  } catch (error) {
+    return storageErrorResponse(error, 'Failed to persist new contract.');
+  }
 }

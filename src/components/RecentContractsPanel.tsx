@@ -25,11 +25,25 @@ export function RecentContractsPanel() {
     setLoading(true);
     try {
       const res = await fetch('/api/contracts', { cache: 'no-store' });
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: {
+        contracts?: Contract[];
+        storage?: string;
+        error?: string;
+      } = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+      } catch {
+        data = {};
+      }
       if (res.ok && Array.isArray(data.contracts)) {
         setContracts(data.contracts);
         if (data.storage) setStorageKind(data.storage);
+      } else if (!res.ok && data.error) {
+        setResolveBanner(data.error);
       }
+    } catch {
+      setResolveBanner('Unable to reach /api/contracts.');
     } finally {
       setLoading(false);
     }

@@ -155,16 +155,25 @@ export function CreateContractForm() {
           beneficiary,
         }),
       });
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: { contract?: { id?: string }; error?: string } = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+      } catch {
+        data = {};
+      }
       if (!res.ok || !data.contract?.id) {
-        setError(data.error || 'Could not create contract.');
+        setError(
+          data.error ||
+            `Could not create contract (HTTP ${res.status}). Check /api/health and deployment environment variables.`
+        );
         setSubmitting(false);
         return;
       }
 
       router.push(`/c/${data.contract.id}`);
     } catch {
-      setError('Network error creating contract.');
+      setError('Network error reaching server. Check your connection and try again.');
       setSubmitting(false);
     }
   }

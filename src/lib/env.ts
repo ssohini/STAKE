@@ -23,6 +23,13 @@ export function isConfiguredEnvValue(value: string | undefined): value is string
   return !PLACEHOLDER_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
+export function isServerlessRuntime(): boolean {
+  return (
+    process.env.VERCEL === '1' ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME)
+  );
+}
+
 export function getPayPalBaseUrl(): string {
   const raw =
     process.env.PAYPAL_BASE_URL?.trim() || 'https://api-m.sandbox.paypal.com';
@@ -135,12 +142,23 @@ export function getEnvDiagnostics(): EnvDiagnostics {
     missingRequired.push('GEMINI_API_KEY');
   }
 
+  const serverless = isServerlessRuntime();
+  if (serverless && !upstashOk) {
+    if (!isConfiguredEnvValue(process.env.UPSTASH_REDIS_REST_URL)) {
+      missingRequired.push('UPSTASH_REDIS_REST_URL');
+    }
+    if (!isConfiguredEnvValue(process.env.UPSTASH_REDIS_REST_TOKEN)) {
+      missingRequired.push('UPSTASH_REDIS_REST_TOKEN');
+    }
+  }
+
   return {
     ready:
       paypalServerOk &&
       paypalClientOk &&
       geminiOk &&
-      sandbox,
+      sandbox &&
+      (!serverless || upstashOk),
     paypalConfigured: paypalServerOk,
     paypalClientSdkConfigured: paypalClientOk,
     paypalWebhookConfigured: webhookOk,

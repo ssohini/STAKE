@@ -3,7 +3,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Redis } from '@upstash/redis';
 import { createAuditEntry } from './audit';
+import { isConfiguredEnvValue, isServerlessRuntime } from './env';
 import type { Contract } from './types';
+
+export class StorageConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StorageConfigError';
+  }
+}
 
 export interface PayPalLookupRefs {
   customId?: string | null;
@@ -74,10 +82,20 @@ export class JsonFileContractStore implements ContractStore {
 
   private async writeAllUnsafe(data: JsonStoreFile): Promise<void> {
     const dir = path.dirname(this.filePath);
-    await fs.mkdir(dir, { recursive: true });
-    const tmpPath = `${this.filePath}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-    await fs.rename(tmpPath, this.filePath);
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      const tmpPath = `${this.filePath}.${crypto.randomUUID()}.tmp`;
+      await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+      await fs.rename(tmpPath, this.filePath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EROFS' || code === 'EACCES' || code === 'EPERM') {
+        throw new StorageConfigError(
+          'Local JSON storage directory is read-only. Configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your deployment environment variables.'
+        );
+      }
+      throw error;
+    }
   }
 
   async create(contract: Contract): Promise<Contract> {
@@ -295,9 +313,9 @@ export class UpstashContractStore implements ContractStore {
 }
 
 export function isUpstashConfigured(): boolean {
-  return Boolean(
-    process.env.UPSTASH_REDIS_REST_URL?.trim() &&
-      process.env.UPSTASH_REDIS_REST_TOKEN?.trim()
+  return (
+    isConfiguredEnvValue(process.env.UPSTASH_REDIS_REST_URL) &&
+    isConfiguredEnvValue(process.env.UPSTASH_REDIS_REST_TOKEN)
   );
 }
 
@@ -306,15 +324,21 @@ let singletonStore: ContractStore | null = null;
 export function getContractStore(): ContractStore {
   if (singletonStore) return singletonStore;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  if (url && token) {
-    singletonStore = new UpstashContractStore(url, token);
-  } else {
-    singletonStore = new JsonFileContractStore();
+  if (isConfiguredEnvValue(url) && isConfiguredEnvValue(token)) {
+    singletonStore = new UpstashContractStore(url.trim(), token.trim());
+    return singletonStore;
   }
 
+  if (isServerlessRuntime()) {
+    throw new StorageConfigError(
+      'Serverless deployment requires Upstash Redis. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Vercel Environment Variables and redeploy.'
+    );
+  }
+
+  singletonStore = new JsonFileContractStore();
   return singletonStore;
 }
 

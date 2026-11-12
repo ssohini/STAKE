@@ -5,12 +5,18 @@ import {
   getEnvDiagnostics,
   isConfiguredEnvValue,
 } from '../env';
+import {
+  getContractStore,
+  resetContractStoreForTests,
+  StorageConfigError,
+} from '../store';
 
 describe('environment variable validation & Sandbox safety', () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    resetContractStoreForTests();
   });
 
   it('rejects unset or placeholder values from .env.example', () => {
@@ -53,5 +59,23 @@ describe('environment variable validation & Sandbox safety', () => {
     expect(diag.missingRequired).toEqual([]);
     expect(JSON.stringify(diag)).not.toContain('super-secret');
     expect(JSON.stringify(diag)).not.toContain('gem-secret');
+  });
+
+  it('requires Upstash Redis on Vercel serverless and throws StorageConfigError instead of hitting read-only fs', () => {
+    process.env.VERCEL = '1';
+    process.env.PAYPAL_CLIENT_ID = 'sb-cid';
+    process.env.PAYPAL_CLIENT_SECRET = 'sb-secret';
+    process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID = 'sb-cid';
+    process.env.PAYPAL_WEBHOOK_ID = 'WH-123';
+    process.env.GEMINI_API_KEY = 'gem-key';
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    resetContractStoreForTests();
+
+    const diag = getEnvDiagnostics();
+    expect(diag.ready).toBe(false);
+    expect(diag.missingRequired).toContain('UPSTASH_REDIS_REST_URL');
+    expect(diag.missingRequired).toContain('UPSTASH_REDIS_REST_TOKEN');
+    expect(() => getContractStore()).toThrow(StorageConfigError);
   });
 });

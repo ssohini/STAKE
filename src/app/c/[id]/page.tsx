@@ -2,7 +2,8 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { ContractWorkbench } from '@/components/ContractWorkbench';
 import { PixelAlertIcon, PixelArrowRightIcon } from '@/components/PixelIcons';
-import { getContractStore } from '@/lib/store';
+import { getContractStore, StorageConfigError } from '@/lib/store';
+import type { Contract } from '@/lib/types';
 
 async function ContractLoader({
   params,
@@ -10,8 +11,45 @@ async function ContractLoader({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const store = getContractStore();
-  const contract = await store.get(id);
+  let contract: Contract | null = null;
+  let storageKind: string = 'json';
+  let loadError: string | null = null;
+
+  try {
+    const store = getContractStore();
+    storageKind = store.kind;
+    contract = await store.get(id);
+  } catch (error) {
+    loadError =
+      error instanceof StorageConfigError
+        ? error.message
+        : error instanceof Error
+        ? error.message
+        : 'Unable to connect to contract storage.';
+  }
+
+  if (loadError) {
+    return (
+      <div className="pixel-grid-bg min-h-[calc(100vh-140px)] py-20 px-4">
+        <div className="mx-auto max-w-xl">
+          <div className="pixel-card-yellow p-8 text-center">
+            <PixelAlertIcon className="mx-auto h-10 w-10 text-[#facc15]" />
+            <h1 className="mt-4 font-pixel text-xl font-bold uppercase text-white">
+              STORAGE NOT CONFIGURED
+            </h1>
+            <p className="mt-3 font-mono text-xs text-neutral-300">{loadError}</p>
+            <Link
+              href="/"
+              className="mt-6 inline-flex items-center gap-2 border-2 border-white bg-[#facc15] px-5 py-2.5 font-pixel text-xs font-bold uppercase tracking-wider text-black shadow-[4px_4px_0px_#ffffff] transition hover:bg-[#fde047] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none"
+            >
+              BACK TO HOME
+              <PixelArrowRightIcon className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!contract) {
     return (
@@ -52,7 +90,7 @@ async function ContractLoader({
       <ContractWorkbench
         initialContract={contract}
         paypalClientId={paypalClientId}
-        storageKind={store.kind}
+        storageKind={storageKind}
       />
     </div>
   );
