@@ -1,0 +1,267 @@
+{
+  "info": {
+    "name": "Stake — PayPal REST API v2 (Sandbox)",
+    "_postman_id": "8c5f2c4e-6b4d-4d8a-9c5f-22a1d8001001",
+    "description": "Raw PayPal REST API v2 calls backing Stake: OAuth2 token, Create Order (intent=AUTHORIZE), Authorize Order, Capture Authorization (fail path), and Void Authorization (pass path). Run requests 1 -> 2 -> (approve in Sandbox browser) -> 3 -> 4A or 4B.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api-m.sandbox.paypal.com",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "value": "YOUR_PAYPAL_SANDBOX_CLIENT_ID",
+      "type": "string"
+    },
+    {
+      "key": "client_secret",
+      "value": "YOUR_PAYPAL_SANDBOX_CLIENT_SECRET",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "order_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "authorization_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "contract_id",
+      "value": "demo-contract-01",
+      "type": "string"
+    },
+    {
+      "key": "stake_value",
+      "value": "25.00",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Get OAuth2 Access Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200 OK', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.expect(json.access_token).to.be.a('string');",
+              "pm.collectionVariables.set('access_token', json.access_token);",
+              "console.log('PayPal-Debug-Id:', pm.response.headers.get('PayPal-Debug-Id'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "basic",
+          "basic": [
+            { "key": "username", "value": "{{client_id}}", "type": "string" },
+            { "key": "password", "value": "{{client_secret}}", "type": "string" }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "grant_type", "value": "client_credentials", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/oauth2/token",
+          "host": ["{{base_url}}"],
+          "path": ["v1", "oauth2", "token"]
+        }
+      }
+    },
+    {
+      "name": "2. Create Order (intent = AUTHORIZE)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.collectionVariables.set('order_id', json.id);",
+              "const approve = (json.links || []).find(l => l.rel === 'approve');",
+              "console.log('Order ID:', json.id);",
+              "console.log('Open approve URL in Sandbox buyer browser:', approve ? approve.href : 'N/A');",
+              "console.log('PayPal-Debug-Id:', pm.response.headers.get('PayPal-Debug-Id'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            { "key": "token", "value": "{{access_token}}", "type": "string" }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Prefer", "value": "return=representation" },
+          { "key": "PayPal-Request-Id", "value": "stake-create-{{$guid}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intent\": \"AUTHORIZE\",\n  \"purchase_units\": [\n    {\n      \"reference_id\": \"{{contract_id}}\",\n      \"custom_id\": \"{{contract_id}}\",\n      \"description\": \"Stake ${{stake_value}} USD commitment contract\",\n      \"amount\": {\n        \"currency_code\": \"USD\",\n        \"value\": \"{{stake_value}}\"\n      }\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/v2/checkout/orders",
+          "host": ["{{base_url}}"],
+          "path": ["v2", "checkout", "orders"]
+        }
+      }
+    },
+    {
+      "name": "3. Authorize Order (after buyer approval)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Order authorized (200/201)', () => pm.expect([200, 201]).to.include(pm.response.code));",
+              "const json = pm.response.json();",
+              "const auth = json.purchase_units?.[0]?.payments?.authorizations?.[0];",
+              "pm.expect(auth && auth.id).to.be.a('string');",
+              "pm.collectionVariables.set('authorization_id', auth.id);",
+              "console.log('Authorization ID:', auth.id, 'Status:', auth.status);",
+              "console.log('PayPal-Debug-Id:', pm.response.headers.get('PayPal-Debug-Id'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            { "key": "token", "value": "{{access_token}}", "type": "string" }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Prefer", "value": "return=representation" },
+          { "key": "PayPal-Request-Id", "value": "stake-auth-{{order_id}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "{{base_url}}/v2/checkout/orders/{{order_id}}/authorize",
+          "host": ["{{base_url}}"],
+          "path": ["v2", "checkout", "orders", "{{order_id}}", "authorize"]
+        }
+      }
+    },
+    {
+      "name": "4A. Capture Authorization (Fail / Expired Path)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Capture succeeded (200/201)', () => pm.expect([200, 201]).to.include(pm.response.code));",
+              "const json = pm.response.json();",
+              "console.log('Capture ID:', json.id, 'Status:', json.status);",
+              "console.log('PayPal-Debug-Id:', pm.response.headers.get('PayPal-Debug-Id'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            { "key": "token", "value": "{{access_token}}", "type": "string" }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Prefer", "value": "return=representation" },
+          { "key": "PayPal-Request-Id", "value": "stake-capture-{{authorization_id}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"final_capture\": true,\n  \"note_to_payer\": \"Stake contract failed or expired.\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/v2/payments/authorizations/{{authorization_id}}/capture",
+          "host": ["{{base_url}}"],
+          "path": [
+            "v2",
+            "payments",
+            "authorizations",
+            "{{authorization_id}}",
+            "capture"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4B. Void Authorization (Pass Path)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Void succeeded (200 or 204)', () => pm.expect([200, 204]).to.include(pm.response.code));",
+              "console.log('PayPal-Debug-Id:', pm.response.headers.get('PayPal-Debug-Id'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            { "key": "token", "value": "{{access_token}}", "type": "string" }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Prefer", "value": "return=representation" },
+          { "key": "PayPal-Request-Id", "value": "stake-void-{{authorization_id}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v2/payments/authorizations/{{authorization_id}}/void",
+          "host": ["{{base_url}}"],
+          "path": [
+            "v2",
+            "payments",
+            "authorizations",
+            "{{authorization_id}}",
+            "void"
+          ]
+        }
+      }
+    }
+  ]
+}
